@@ -1,4 +1,4 @@
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 
 import numpy as np
 import requests
@@ -71,7 +71,20 @@ def build_integer_list(timeseries, signature, square_size=SQUARE_SIZE):
 def get_currency_data(timestamp):
     url = f"https://min-api.cryptocompare.com/data/v2/histominute?fsym=BTC&aggregate=15&toTs={timestamp}&tsym=USD&limit=95"
     response = requests.get(url)
-    return response.json()["Data"]["Data"]
+    try:
+        response_data = response.json()["Data"]["Data"]
+    except KeyError:
+        print(response.json())
+        raise
+
+    first_date = datetime.utcfromtimestamp(response_data[0]["time"])
+    end_date = datetime.utcfromtimestamp(response_data[95]["time"])
+
+    assert first_date.hour == 0 and first_date.minute == 15
+    assert end_date.hour == 0 and end_date.minute == 0
+    assert end_date.day == first_date.day + 1
+
+    return response_data
 
 
 def get_timeseries_data(timestamp):
@@ -92,18 +105,38 @@ def get_signature_data(year, month, day):
     return [color_code, color_code, color_code, color_code]
 
 
-# Get dates
-yesteday = date.today() - timedelta(days=1)
-epoch_timestamp = datetime(yesteday.year, yesteday.month, yesteday.day, 0, 0).timestamp()
+def generate_art_from_datetime(datetime_seed):
+    epoch_timestamp = datetime(
+        datetime_seed.year, datetime_seed.month, datetime_seed.day, 0, 0, tzinfo=timezone.utc).timestamp()
 
-# fetch data
-timeseries = get_timeseries_data(epoch_timestamp)
-signature = get_signature_data(yesteday.year, yesteday.month, yesteday.day)
+    # fetch data
+    timeseries = get_timeseries_data(epoch_timestamp)
+    signature = get_signature_data(datetime_seed.year, datetime_seed.month, datetime_seed.day)
 
-# process data to build array
-dataset = build_integer_list(timeseries, signature)
-array = build_array_from_integer_list(dataset)
+    # process data to build array
+    dataset = build_integer_list(timeseries, signature)
+    array = build_array_from_integer_list(dataset)
 
-# # Generate image from array
-image = Image.fromarray(array, mode="RGB")
-image.save("img.png")
+    # # Generate image from array
+    image = Image.fromarray(array, mode="RGB")
+    image.save(f"{datetime_seed.year}-{datetime_seed.month}-{datetime_seed.day}.png")
+
+
+def generate_yesterday_art():
+    yesterday = datetime.today() - timedelta(days=1)
+    generate_art_from_datetime(yesterday)
+
+
+def generate_art_last_seven_days():
+    today = datetime.today()
+    art_datetime = today - timedelta(days=6)
+    while True:
+        art_datetime = art_datetime + timedelta(days=1)
+
+        if art_datetime == today:
+            break
+
+        generate_art_from_datetime(art_datetime)
+
+
+generate_art_last_seven_days()
